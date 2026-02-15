@@ -14,25 +14,25 @@ jobs:
           repository: armbian/build
           ref: main
 
-      - name: 安装32位依赖+调整目录权限
-        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt install -y libc6:i386 libncurses5:i386 libstdc++6:i386 gcc-arm-linux-gnueabihf crossbuild-essential-armhf && sudo chmod -R 777 $PWD && sudo chown -R 1000:1000 $PWD && mkdir -p $PWD/gitconfig && chmod 777 $PWD/gitconfig
+      - name: 安装32位依赖+彻底开放权限
+        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt install -y libc6:i386 libncurses5:i386 libstdc++6:i386 gcc-arm-linux-gnueabihf crossbuild-essential-armhf && sudo chmod -R 777 $PWD && sudo chown -R nobody:nogroup $PWD
 
       - name: 创建userpatches目录+所有配置文件
-        run: mkdir -p userpatches/boards && echo 'ARCH=arm\nBOARD=rk3128\nBOARD_NAME="RK3128 TV Box (armv7 32bit)"\nKERNEL_TARGET="current"\nTOOLCHAIN="arm-linux-gnueabihf"\nRELEASE=bookworm\nDESKTOP="none"\nMINIMAL=yes\nEXTRA_PACKAGES="p910nd cups cups-bsd"\nBUILD_KSYM=no\nBUILD_UBOOT=yes\nKERNEL_CONFIG_OVERRIDE="CONFIG_USB_PRINTER=y\nCONFIG_USB_USBNET=y\nCONFIG_NETWORK_FILESYSTEMS=y\nCONFIG_PRINTING=y"\nIMAGE_TYPE=img\nCOMPRESS_OUTPUT=yes\nNONINTERACTIVE=yes\nBUILD_CONFIGURE=no\nSKIP_CONFIG=yes' > userpatches/config-rk3128-armv7.conf && echo 'CONFIG_ARM=y\nCONFIG_ARCH_ROCKCHIP=y\nCONFIG_ARCH_RK3128=y\nCONFIG_USB_PRINTER=y\nCONFIG_USB_USBNET=y\nCONFIG_NETWORK_FILESYSTEMS=y\nCONFIG_PRINTING=y\nCONFIG_SERIAL_DEV=y\nCONFIG_VFAT_FS=y\nCONFIG_EXT4_FS=y' > userpatches/kernel-config-rk3128 && echo '#!/bin/bash\nset -e\nsystemctl enable p910nd\nsystemctl start p910nd\nsystemctl enable cups\nsystemctl start cups\nsudo ufw allow 9100/tcp\nsudo ufw allow 631/tcp\necho "P910ND_OPTS=\"-f /dev/usb/lp0\"" > /etc/default/p910nd\nsed -i "s/Listen localhost:631/Port 631/" /etc/cups/cupsd.conf\nsed -i "s/<Location \/>/<Location \/>\n  Allow all/" /etc/cups/cupsd.conf' > userpatches/customize-image.sh && chmod +x userpatches/customize-image.sh && echo 'LINUXFAMILY=rockchip\nKERNEL_IMAGE_TYPE=zImage\nKERNEL_ADDR=0x60408000\nKERNEL_DEVICETREE="rk3128-box.dtb"\nUBOOT_TARGET=rk3128-box\nUBOOT_CONFIG=rk3128-box_defconfig' > userpatches/boards/rk3128.conf
+        run: mkdir -p userpatches/boards && echo 'ARCH=arm\nBOARD=rk3128\nBOARD_NAME="RK3128 TV Box (armv7 32bit)"\nKERNEL_TARGET="current"\nTOOLCHAIN="arm-linux-gnueabihf"\nRELEASE=bookworm\nDESKTOP="none"\nMINIMAL=yes\nEXTRA_PACKAGES="p910nd cups cups-bsd"\nBUILD_KSYM=no\nBUILD_UBOOT=yes\nKERNEL_CONFIG_OVERRIDE="CONFIG_USB_PRINTER=y\nCONFIG_USB_USBNET=y\nCONFIG_NETWORK_FILESYSTEMS=y\nCONFIG_PRINTING=y"\nIMAGE_TYPE=img\nCOMPRESS_OUTPUT=yes\nNONINTERACTIVE=yes\nBUILD_CONFIGURE=no\nSKIP_CONFIG=yes\nSKIP_GIT=yes' > userpatches/config-rk3128-armv7.conf && echo 'CONFIG_ARM=y\nCONFIG_ARCH_ROCKCHIP=y\nCONFIG_ARCH_RK3128=y\nCONFIG_USB_PRINTER=y\nCONFIG_USB_USBNET=y\nCONFIG_NETWORK_FILESYSTEMS=y\nCONFIG_PRINTING=y\nCONFIG_SERIAL_DEV=y\nCONFIG_VFAT_FS=y\nCONFIG_EXT4_FS=y' > userpatches/kernel-config-rk3128 && echo '#!/bin/bash\nset -e\nsystemctl enable p910nd\nsystemctl start p910nd\nsystemctl enable cups\nsystemctl start cups\nsudo ufw allow 9100/tcp\nsudo ufw allow 631/tcp\necho "P910ND_OPTS=\"-f /dev/usb/lp0\"" > /etc/default/p910nd\nsed -i "s/Listen localhost:631/Port 631/" /etc/cups/cupsd.conf\nsed -i "s/<Location \/>/<Location \/>\n  Allow all/" /etc/cups/cupsd.conf' > userpatches/customize-image.sh && chmod +x userpatches/customize-image.sh && echo 'LINUXFAMILY=rockchip\nKERNEL_IMAGE_TYPE=zImage\nKERNEL_ADDR=0x60408000\nKERNEL_DEVICETREE="rk3128-box.dtb"\nUBOOT_TARGET=rk3128-box\nUBOOT_CONFIG=rk3128-box_defconfig' > userpatches/boards/rk3128.conf
 
       - name: 预下载Armbian编译镜像
         run: docker pull armbian/build:latest
 
-      - name: 启动容器（非root+挂载Git配置目录）
-        run: docker run -itd --name armbian-build --user 1000:1000 --entrypoint /bin/bash -v $PWD:/armbian -v $PWD/gitconfig:/home/builduser -e HOME=/home/builduser armbian/build:latest -c "while true; do sleep 3600; done"
+      - name: 启动容器（无权限限制+后台运行）
+        run: docker run -itd --name armbian-build --user nobody:nogroup --entrypoint /bin/bash -v $PWD:/armbian --privileged armbian/build:latest -c "while true; do sleep 3600; done"
 
-      - name: 等待容器稳定+初始化Git配置+修改交互脚本
-        run: sleep 5 && docker exec armbian-build bash -c "git config --global user.name \"CI Build\" && git config --global user.email \"ci@example.com\" && echo '#!/bin/bash\ninteractive_config_prepare_terminal() { return 0; }\ninteractive_config_ask_kernel() { return 0; }\ninteractive_config_ask_kernel_configure() { return 0; }\ndialog_if_terminal_set_vars() { return 0; }' > /armbian/lib/functions/configuration/interactive.sh && chmod +x /armbian/lib/functions/configuration/interactive.sh"
+      - name: 等待容器稳定+修改交互脚本（跳过Git）
+        run: sleep 5 && docker exec armbian-build bash -c "echo '#!/bin/bash\ninteractive_config_prepare_terminal() { return 0; }\ninteractive_config_ask_kernel() { return 0; }\ninteractive_config_ask_kernel_configure() { return 0; }\ndialog_if_terminal_set_vars() { return 0; }' > /armbian/lib/functions/configuration/interactive.sh && chmod +x /armbian/lib/functions/configuration/interactive.sh && echo 'SKIP_GIT=yes' >> /armbian/lib/functions/general/git.sh"
 
-      - name: 在容器内以非root用户执行编译（指定Git配置）
-        run: docker exec armbian-build bash -c "export DEBIAN_FRONTEND=noninteractive && export DIALOG=echo && export GIT_CONFIG_GLOBAL=/home/builduser/.gitconfig && cd /armbian && ./compile.sh BOARD=rk3128 ARCH=arm RELEASE=bookworm BUILD_MINIMAL=yes EXTRA_PACKAGES=\"p910nd cups\" KERNEL_TARGET=current NONINTERACTIVE=yes BUILD_CONFIGURE=no SKIP_CONFIG=yes"
+      - name: 在容器内执行编译（彻底跳过Git+非交互）
+        run: docker exec armbian-build bash -c "export DEBIAN_FRONTEND=noninteractive && export DIALOG=echo && export SKIP_GIT=yes && cd /armbian && ./compile.sh BOARD=rk3128 ARCH=arm RELEASE=bookworm BUILD_MINIMAL=yes EXTRA_PACKAGES=\"p910nd cups\" KERNEL_TARGET=current NONINTERACTIVE=yes BUILD_CONFIGURE=no SKIP_CONFIG=yes SKIP_GIT=yes"
 
-      - name: 从容器复制固件到宿主机（修复权限）
+      - name: 从容器复制固件到宿主机
         run: sudo docker cp armbian-build:/armbian/output/images/. $PWD/output/images/ || true && sudo chown -R $USER:$USER $PWD/output/images
 
       - name: 上传固件
