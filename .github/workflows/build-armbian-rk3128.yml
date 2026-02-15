@@ -1,0 +1,47 @@
+name: Build Armbian RK3128 armv7 (Print Server)
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: # 手动触发
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04 # 32位兼容最好
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+使用:
+          repository: armbian/build
+          ref: main
+
+      - name: 安装32位依赖
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt update
+          sudo apt install -y libc6:i386 libncurses5:i386 libstdc++6:i386
+          sudo apt install -y gcc-arm-linux-gnueabihf crossbuild-essential-armhf
+
+      - name: 复制自定义配置
+        run: |
+          mkdir -p userpatches
+          cp $GITHUB_WORKSPACE/config-rk3128-armv7.conf userpatches/
+          cp $GITHUB_WORKSPACE/customize-image.sh userpatches/
+          mkdir -p userpatches/boards
+          cp $GITHUB_WORKSPACE/rk3128.conf userpatches/boards/
+          chmod +x userpatches/customize-image.sh
+
+      - name: 编译Armbian（强制32位）
+        run: |
+          ./compile.sh \
+            BOARD=rk3128 \
+            ARCH=arm \
+            RELEASE=bookworm \
+            BUILD_MINIMAL=yes \
+            EXTRA_PACKAGES="p910nd cups" \
+            KERNEL_TARGET=current
+
+      - name: 上传固件
+        uses: actions/upload-artifact@v4
+使用:
+          name: armbian-rk3128-armv7-print-server
+路径: output/images/*.img.xz
