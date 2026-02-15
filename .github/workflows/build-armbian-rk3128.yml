@@ -17,11 +17,14 @@ jobs:
       - name: 安装32位依赖
         run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt install -y libc6:i386 libncurses5:i386 libstdc++6:i386 gcc-arm-linux-gnueabihf crossbuild-essential-armhf
 
-      - name: 创建userpatches目录
-        run: mkdir -p userpatches/boards
+      - name: 创建目录+屏蔽交互脚本
+        run: mkdir -p userpatches/boards && mkdir -p lib/functions/configuration && echo '#!/bin/bash' > lib/functions/configuration/interactive.sh && chmod +x lib/functions/configuration/interactive.sh
 
       - name: 写入核心配置文件
-        run: echo 'ARCH=arm\nBOARD=rk3128\nBOARD_NAME="RK3128 TV Box (armv7 32bit)"\nKERNEL_TARGET="current"\nTOOLCHAIN="arm-linux-gnueabihf"\nRELEASE=bookworm\nDESKTOP="none"\nMINIMAL=yes\nEXTRA_PACKAGES="p910nd cups cups-bsd"\nBUILD_KSYM=no\nBUILD_UBOOT=yes\nKERNEL_CONFIG_OVERRIDE="CONFIG_USB_PRINTER=y\nCONFIG_USB_USBNET=y\nCONFIG_NETWORK_FILESYSTEMS=y\nCONFIG_PRINTING=y"\nIMAGE_TYPE=img\nCOMPRESS_OUTPUT=yes\nNONINTERACTIVE=yes\nBUILD_CONFIGURE=no' > userpatches/config-rk3128-armv7.conf
+        run: echo 'ARCH=arm\nBOARD=rk3128\nBOARD_NAME="RK3128 TV Box (armv7 32bit)"\nKERNEL_TARGET="current"\nTOOLCHAIN="arm-linux-gnueabihf"\nRELEASE=bookworm\nDESKTOP="none"\nMINIMAL=yes\nEXTRA_PACKAGES="p910nd cups cups-bsd"\nBUILD_KSYM=no\nBUILD_UBOOT=yes\nKERNEL_CONFIG_OVERRIDE="CONFIG_USB_PRINTER=y\nCONFIG_USB_USBNET=y\nCONFIG_NETWORK_FILESYSTEMS=y\nCONFIG_PRINTING=y"\nIMAGE_TYPE=img\nCOMPRESS_OUTPUT=yes\nNONINTERACTIVE=yes\nBUILD_CONFIGURE=no\nSKIP_CONFIG=yes' > userpatches/config-rk3128-armv7.conf
+
+      - name: 预生成RK3128内核配置
+        run: echo 'CONFIG_ARM=y\nCONFIG_ARCH_ROCKCHIP=y\nCONFIG_ARCH_RK3128=y\nCONFIG_USB_PRINTER=y\nCONFIG_USB_USBNET=y\nCONFIG_NETWORK_FILESYSTEMS=y\nCONFIG_PRINTING=y\nCONFIG_SERIAL_DEV=y\nCONFIG_VFAT_FS=y\nCONFIG_EXT4_FS=y' > userpatches/kernel-config-rk3128
 
       - name: 写入自定义启动脚本
         run: echo '#!/bin/bash\nset -e\nsystemctl enable p910nd\nsystemctl start p910nd\nsystemctl enable cups\nsystemctl start cups\nsudo ufw allow 9100/tcp\nsudo ufw allow 631/tcp\necho "P910ND_OPTS=\"-f /dev/usb/lp0\"" > /etc/default/p910nd\nsed -i "s/Listen localhost:631/Port 631/" /etc/cups/cupsd.conf\nsed -i "s/<Location \/>/<Location \/>\n  Allow all/" /etc/cups/cupsd.conf' > userpatches/customize-image.sh
@@ -32,8 +35,8 @@ jobs:
       - name: 写入设备树配置
         run: echo 'LINUXFAMILY=rockchip\nKERNEL_IMAGE_TYPE=zImage\nKERNEL_ADDR=0x60408000\nKERNEL_DEVICETREE="rk3128-box.dtb"\nUBOOT_TARGET=rk3128-box\nUBOOT_CONFIG=rk3128-box_defconfig' > userpatches/boards/rk3128.conf
 
-      - name: 编译Armbian（强制非交互+32位）
-        run: ./compile.sh BOARD=rk3128 ARCH=arm RELEASE=bookworm BUILD_MINIMAL=yes EXTRA_PACKAGES="p910nd cups" KERNEL_TARGET=current NONINTERACTIVE=yes BUILD_CONFIGURE=no
+      - name: 强制非交互编译（终极版）
+        run: export DEBIAN_FRONTEND=noninteractive && ./compile.sh BOARD=rk3128 ARCH=arm RELEASE=bookworm BUILD_MINIMAL=yes EXTRA_PACKAGES="p910nd cups" KERNEL_TARGET=current NONINTERACTIVE=yes BUILD_CONFIGURE=no SKIP_CONFIG=yes <<< "no"
 
       - name: 上传固件
         uses: actions/upload-artifact@v4
