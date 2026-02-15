@@ -14,38 +14,35 @@ jobs:
           repository: armbian/build
           ref: main
 
-      - name: 安装32位依赖+开放权限
-        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt install -y libc6:i386 libncurses5:i386 libstdc++6:i386 gcc-arm-linux-gnueabihf crossbuild-essential-armhf && sudo chmod -R 777 $PWD
+      - name: 安装32位依赖+创建用户
+        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt install -y libc6:i386 libncurses5:i386 libstdc++6:i386 gcc-arm-linux-gnueabihf crossbuild-essential-armhf && sudo useradd -m -s /bin/bash armbian && sudo chown -R armbian:armbian $PWD && sudo chmod -R 777 $PWD
 
-      - name: 提前创建固件目录（容错核心）
-        run: mkdir -p $PWD/output/images && sudo chmod -R 777 $PWD/output
+      - name: 提前创建目录+修复路径
+        run: mkdir -p $PWD/output/images && sudo chmod -R 777 $PWD/output && echo 'KERNEL_CONFIGURE=no' >> $PWD/lib/functions/main/config-interactive.sh && echo 'return 0' >> $PWD/lib/functions/main/config-prepare.sh
 
-      - name: 创建userpatches目录+优化RK3128配置
-        run: mkdir -p userpatches/boards && echo 'ARCH=arm\nBOARD=rk3128\nBOARD_NAME="RK3128 TV Box (armv7 32bit)"\nKERNEL_TARGET="legacy"\nTOOLCHAIN="arm-linux-gnueabihf"\nRELEASE=bullseye\nDESKTOP="none"\nMINIMAL=yes\nEXTRA_PACKAGES="p910nd cups cups-bsd"\nBUILD_KSYM=no\nBUILD_UBOOT=yes\nKERNEL_CONFIG_OVERRIDE="CONFIG_USB_PRINTER=y\nCONFIG_USB_USBNET=y\nCONFIG_NETWORK_FILESYSTEMS=y\nCONFIG_PRINTING=y"\nIMAGE_TYPE=img\nCOMPRESS_OUTPUT=yes\nNONINTERACTIVE=yes\nBUILD_CONFIGURE=no\nSKIP_CONFIG=yes\nSKIP_BOOTSPLASH=yes\nSKIP_KERNEL_CLEAN=yes' > userpatches/config-rk3128-armv7.conf && echo 'CONFIG_ARM=y\nCONFIG_ARCH_ROCKCHIP=y\nCONFIG_ARCH_RK3128=y\nCONFIG_USB_PRINTER=y\nCONFIG_USB_USBNET=y\nCONFIG_NETWORK_FILESYSTEMS=y\nCONFIG_PRINTING=y\nCONFIG_SERIAL_DEV=y\nCONFIG_VFAT_FS=y\nCONFIG_EXT4_FS=y\nCONFIG_MMC_BLOCK=y\nCONFIG_SPI_FLASH=y\nCONFIG_USB_STORAGE=y' > userpatches/kernel-config-rk3128 && echo '#!/bin/bash\nset -e\nsystemctl enable p910nd\nsystemctl start p910nd\nsystemctl enable cups\nsystemctl start cups\nsudo ufw allow 9100/tcp\nsudo ufw allow 631/tcp\necho "P910ND_OPTS=\"-f /dev/usb/lp0\"" > /etc/default/p910nd\nsed -i "s/Listen localhost:631/Port 631/" /etc/cups/cupsd.conf\nsed -i "s/<Location \/>/<Location \/>\n  Allow all/" /etc/cups/cupsd.conf' > userpatches/customize-image.sh && chmod +x userpatches/customize-image.sh && echo 'LINUXFAMILY=rockchip\nKERNEL_IMAGE_TYPE=zImage\nKERNEL_ADDR=0x60408000\nKERNEL_DEVICETREE="rk3128-box.dtb"\nUBOOT_TARGET=rk3128-box\nUBOOT_CONFIG=rk3128-box_defconfig\nBOOTCONFIG=rk3128-box_defconfig' > userpatches/boards/rk3128.conf
+      - name: 创建userpatches+强制配置
+        run: mkdir -p userpatches/boards && echo 'ARCH=arm\nBOARD=rk3128\nBOARD_NAME="RK3128 TV Box (armv7 32bit)"\nKERNEL_TARGET="legacy"\nTOOLCHAIN="arm-linux-gnueabihf"\nRELEASE=bullseye\nDESKTOP="none"\nMINIMAL=yes\nEXTRA_PACKAGES="p910nd cups cups-bsd"\nBUILD_KSYM=no\nBUILD_UBOOT=yes\nKERNEL_CONFIGURE=no\nKERNEL_CONFIG_OVERRIDE="CONFIG_USB_PRINTER=y\nCONFIG_USB_USBNET=y\nCONFIG_NETWORK_FILESYSTEMS=y\nCONFIG_PRINTING=y\nCONFIG_MMC_BLOCK=y\nCONFIG_SPI_FLASH=y\nCONFIG_USB_STORAGE=y"\nIMAGE_TYPE=img\nCOMPRESS_OUTPUT=yes\nNONINTERACTIVE=yes\nBUILD_CONFIGURE=no\nSKIP_CONFIG=yes\nSKIP_BOOTSPLASH=yes\nSKIP_KERNEL_CLEAN=yes\nSKIP_GIT=yes' > userpatches/config-rk3128-armv7.conf && echo 'CONFIG_ARM=y\nCONFIG_ARCH_ROCKCHIP=y\nCONFIG_ARCH_RK3128=y\nCONFIG_USB_PRINTER=y\nCONFIG_USB_USBNET=y\nCONFIG_NETWORK_FILESYSTEMS=y\nCONFIG_PRINTING=y\nCONFIG_SERIAL_DEV=y\nCONFIG_VFAT_FS=y\nCONFIG_EXT4_FS=y\nCONFIG_MMC_BLOCK=y\nCONFIG_SPI_FLASH=y\nCONFIG_USB_STORAGE=y' > userpatches/kernel-config-rk3128 && echo '#!/bin/bash\nset -e\nsystemctl enable p910nd\nsystemctl start p910nd\nsystemctl enable cups\nsystemctl start cups\nsudo ufw allow 9100/tcp\nsudo ufw allow 631/tcp\necho "P910ND_OPTS=\"-f /dev/usb/lp0\"" > /etc/default/p910nd\nsed -i "s/Listen localhost:631/Port 631/" /etc/cups/cupsd.conf\nsed -i "s/<Location \/>/<Location \/>\n  Allow all/" /etc/cups/cupsd.conf' > userpatches/customize-image.sh && chmod +x userpatches/customize-image.sh && echo 'LINUXFAMILY=rockchip\nKERNEL_IMAGE_TYPE=zImage\nKERNEL_ADDR=0x60408000\nKERNEL_DEVICETREE="rk3128-box.dtb"\nUBOOT_TARGET=rk3128-box\nUBOOT_CONFIG=rk3128-box_defconfig\nBOOTCONFIG=rk3128-box_defconfig\nKERNEL_CONFIGURE=no' > userpatches/boards/rk3128.conf
 
-      - name: 预下载Armbian编译镜像
-        run: docker pull armbian/build:latest
+      - name: 预下载镜像+启动容器（非root用户）
+        run: docker pull armbian/build:latest && docker run -itd --name armbian-build --user 1000:1000 --entrypoint /bin/bash -v $PWD:/armbian --privileged armbian/build:latest -c "while true; do sleep 3600; done"
 
-      - name: 启动容器（特权模式+后台运行）
-        run: docker run -itd --name armbian-build --entrypoint /bin/bash -v $PWD:/armbian --privileged armbian/build:latest -c "while true; do sleep 3600; done"
+      - name: 修复Git+强制内核配置+屏蔽交互
+        run: sleep 5 && docker exec armbian-build bash -c "printf '#!/bin/bash\nexit 0\n' > /usr/bin/git && chmod +x /usr/bin/git && echo 'KERNEL_CONFIGURE=no' >> /armbian/lib/functions/main/config-interactive.sh && printf '#!/bin/bash\ninteractive_config_prepare_terminal() { return 0; }\ninteractive_config_ask_kernel() { return 0; }\ninteractive_config_ask_kernel_configure() { return 0; }\ndialog_if_terminal_set_vars() { return 0; }\nconfig_possibly_interactive_kernel_board() { return 0; }\n' > /armbian/lib/functions/configuration/interactive.sh && chmod +x /armbian/lib/functions/configuration/interactive.sh"
 
-      - name: 修复Git假脚本（正确换行）+屏蔽交互
-        run: sleep 5 && docker exec armbian-build bash -c "printf '#!/bin/bash\nexit 0\n' > /usr/bin/git && chmod +x /usr/bin/git && printf '#!/bin/bash\ninteractive_config_prepare_terminal() { return 0; }\ninteractive_config_ask_kernel() { return 0; }\ninteractive_config_ask_kernel_configure() { return 0; }\ndialog_if_terminal_set_vars() { return 0; }\n' > /armbian/lib/functions/configuration/interactive.sh && chmod +x /armbian/lib/functions/configuration/interactive.sh"
+      - name: 非root用户编译（强制KERNEL_CONFIGURE=no）
+        run: docker exec armbian-build bash -c "export DEBIAN_FRONTEND=noninteractive && export DIALOG=echo && export SKIP_GIT=yes && export KERNEL_CONFIGURE=no && cd /armbian && ./compile.sh BOARD=rk3128 ARCH=arm RELEASE=bullseye BUILD_MINIMAL=yes EXTRA_PACKAGES=\"p910nd cups\" KERNEL_TARGET=legacy NONINTERACTIVE=yes BUILD_CONFIGURE=no SKIP_CONFIG=yes SKIP_GIT=yes SKIP_BOOTSPLASH=yes SKIP_KERNEL_CLEAN=yes KERNEL_CONFIGURE=no || true"
 
-      - name: 适配RK3128编译（降级内核+系统）
-        run: docker exec armbian-build bash -c "export DEBIAN_FRONTEND=noninteractive && export DIALOG=echo && export SKIP_GIT=yes && cd /armbian && ./compile.sh BOARD=rk3128 ARCH=arm RELEASE=bullseye BUILD_MINIMAL=yes EXTRA_PACKAGES=\"p910nd cups\" KERNEL_TARGET=legacy NONINTERACTIVE=yes BUILD_CONFIGURE=no SKIP_CONFIG=yes SKIP_GIT=yes SKIP_BOOTSPLASH=yes SKIP_KERNEL_CLEAN=yes || true"
-
-      - name: 复制所有编译文件（容错）
+      - name: 复制文件（绝对路径）
         run: sudo docker cp armbian-build:/armbian/output/. $PWD/output/ || true && sudo chown -R $USER:$USER $PWD/output || true
 
-      - name: 上传所有可能的文件
+      - name: 上传文件（绝对路径+容错）
         uses: actions/upload-artifact@v4
         with:
           name: armbian-rk3128-armv7-print-server
           path: |
-            $PWD/output/**/*
-            $PWD/userpatches/*
-            $PWD/lib/functions/configuration/interactive.sh
+            ${{ github.workspace }}/output/**/*
+            ${{ github.workspace }}/userpatches/*
+            ${{ github.workspace }}/lib/functions/configuration/interactive.sh
 
       - name: 清理容器
         run: docker stop armbian-build && docker rm armbian-build || true
