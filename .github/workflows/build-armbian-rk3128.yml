@@ -14,32 +14,26 @@ jobs:
           repository: armbian/build
           ref: main
 
-      - name: 安装32位依赖
-        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt install -y libc6:i386 libncurses5:i386 libstdc++6:i386 gcc-arm-linux-gnueabihf crossbuild-essential-armhf
+      - name: 安装32位依赖+Docker
+        run: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt install -y libc6:i386 libncurses5:i386 libstdc++6:i386 gcc-arm-linux-gnueabihf crossbuild-essential-armhf docker.io && sudo systemctl start docker
 
-      - name: 创建目录+精准屏蔽交互弹窗（保留核心函数）
-        run: mkdir -p userpatches/boards && echo '#!/bin/bash\ninteractive_config_prepare_terminal() { return 0; }\ninteractive_config_ask_kernel() { return 0; }\ninteractive_config_ask_kernel_configure() { return 0; }\ndialog_if_terminal_set_vars() { return 0; }' > lib/functions/configuration/interactive.sh && chmod +x lib/functions/configuration/interactive.sh
+      - name: 创建userpatches目录+配置文件
+        run: mkdir -p userpatches/boards && echo 'ARCH=arm\nBOARD=rk3128\nBOARD_NAME="RK3128 TV Box (armv7 32bit)"\nKERNEL_TARGET="current"\nTOOLCHAIN="arm-linux-gnueabihf"\nRELEASE=bookworm\nDESKTOP="none"\nMINIMAL=yes\nEXTRA_PACKAGES="p910nd cups cups-bsd"\nBUILD_KSYM=no\nBUILD_UBOOT=yes\nKERNEL_CONFIG_OVERRIDE="CONFIG_USB_PRINTER=y\nCONFIG_USB_USBNET=y\nCONFIG_NETWORK_FILESYSTEMS=y\nCONFIG_PRINTING=y"\nIMAGE_TYPE=img\nCOMPRESS_OUTPUT=yes\nNONINTERACTIVE=yes\nBUILD_CONFIGURE=no\nSKIP_CONFIG=yes' > userpatches/config-rk3128-armv7.conf && echo 'CONFIG_ARM=y\nCONFIG_ARCH_ROCKCHIP=y\nCONFIG_ARCH_RK3128=y\nCONFIG_USB_PRINTER=y\nCONFIG_USB_USBNET=y\nCONFIG_NETWORK_FILESYSTEMS=y\nCONFIG_PRINTING=y\nCONFIG_SERIAL_DEV=y\nCONFIG_VFAT_FS=y\nCONFIG_EXT4_FS=y' > userpatches/kernel-config-rk3128 && echo '#!/bin/bash\nset -e\nsystemctl enable p910nd\nsystemctl start p910nd\nsystemctl enable cups\nsystemctl start cups\nsudo ufw allow 9100/tcp\nsudo ufw allow 631/tcp\necho "P910ND_OPTS=\"-f /dev/usb/lp0\"" > /etc/default/p910nd\nsed -i "s/Listen localhost:631/Port 631/" /etc/cups/cupsd.conf\nsed -i "s/<Location \/>/<Location \/>\n  Allow all/" /etc/cups/cupsd.conf' > userpatches/customize-image.sh && chmod +x userpatches/customize-image.sh && echo 'LINUXFAMILY=rockchip\nKERNEL_IMAGE_TYPE=zImage\nKERNEL_ADDR=0x60408000\nKERNEL_DEVICETREE="rk3128-box.dtb"\nUBOOT_TARGET=rk3128-box\nUBOOT_CONFIG=rk3128-box_defconfig' > userpatches/boards/rk3128.conf
 
-      - name: 写入核心配置文件
-        run: echo 'ARCH=arm\nBOARD=rk3128\nBOARD_NAME="RK3128 TV Box (armv7 32bit)"\nKERNEL_TARGET="current"\nTOOLCHAIN="arm-linux-gnueabihf"\nRELEASE=bookworm\nDESKTOP="none"\nMINIMAL=yes\nEXTRA_PACKAGES="p910nd cups cups-bsd"\nBUILD_KSYM=no\nBUILD_UBOOT=yes\nKERNEL_CONFIG_OVERRIDE="CONFIG_USB_PRINTER=y\nCONFIG_USB_USBNET=y\nCONFIG_NETWORK_FILESYSTEMS=y\nCONFIG_PRINTING=y"\nIMAGE_TYPE=img\nCOMPRESS_OUTPUT=yes\nNONINTERACTIVE=yes\nBUILD_CONFIGURE=no\nSKIP_CONFIG=yes' > userpatches/config-rk3128-armv7.conf
+      - name: 启动Armbian编译容器+修改内部交互脚本
+        run: sudo docker run -itd --name armbian-build -v $PWD:/armbian armbian/build:latest && sudo docker exec armbian-build bash -c "echo '#!/bin/bash\ninteractive_config_prepare_terminal() { return 0; }\ninteractive_config_ask_kernel() { return 0; }\ninteractive_config_ask_kernel_configure() { return 0; }\ndialog_if_terminal_set_vars() { return 0; }' > /armbian/lib/functions/configuration/interactive.sh && chmod +x /armbian/lib/functions/configuration/interactive.sh"
 
-      - name: 预生成RK3128内核配置
-        run: echo 'CONFIG_ARM=y\nCONFIG_ARCH_ROCKCHIP=y\nCONFIG_ARCH_RK3128=y\nCONFIG_USB_PRINTER=y\nCONFIG_USB_USBNET=y\nCONFIG_NETWORK_FILESYSTEMS=y\nCONFIG_PRINTING=y\nCONFIG_SERIAL_DEV=y\nCONFIG_VFAT_FS=y\nCONFIG_EXT4_FS=y' > userpatches/kernel-config-rk3128
+      - name: 在容器内执行非交互编译
+        run: sudo docker exec armbian-build bash -c "export DEBIAN_FRONTEND=noninteractive && export DIALOG=echo && cd /armbian && ./compile.sh BOARD=rk3128 ARCH=arm RELEASE=bookworm BUILD_MINIMAL=yes EXTRA_PACKAGES=\"p910nd cups\" KERNEL_TARGET=current NONINTERACTIVE=yes BUILD_CONFIGURE=no SKIP_CONFIG=yes"
 
-      - name: 写入自定义启动脚本
-        run: echo '#!/bin/bash\nset -e\nsystemctl enable p910nd\nsystemctl start p910nd\nsystemctl enable cups\nsystemctl start cups\nsudo ufw allow 9100/tcp\nsudo ufw allow 631/tcp\necho "P910ND_OPTS=\"-f /dev/usb/lp0\"" > /etc/default/p910nd\nsed -i "s/Listen localhost:631/Port 631/" /etc/cups/cupsd.conf\nsed -i "s/<Location \/>/<Location \/>\n  Allow all/" /etc/cups/cupsd.conf' > userpatches/customize-image.sh
-
-      - name: 赋予脚本执行权限
-        run: chmod +x userpatches/customize-image.sh
-
-      - name: 写入设备树配置
-        run: echo 'LINUXFAMILY=rockchip\nKERNEL_IMAGE_TYPE=zImage\nKERNEL_ADDR=0x60408000\nKERNEL_DEVICETREE="rk3128-box.dtb"\nUBOOT_TARGET=rk3128-box\nUBOOT_CONFIG=rk3128-box_defconfig' > userpatches/boards/rk3128.conf
-
-      - name: 终极非交互编译（保留依赖函数）
-        run: export DEBIAN_FRONTEND=noninteractive && export DIALOG=echo && ./compile.sh BOARD=rk3128 ARCH=arm RELEASE=bookworm BUILD_MINIMAL=yes EXTRA_PACKAGES="p910nd cups" KERNEL_TARGET=current NONINTERACTIVE=yes BUILD_CONFIGURE=no SKIP_CONFIG=yes
+      - name: 从容器复制固件到宿主机
+        run: sudo docker cp armbian-build:/armbian/output/images/. $PWD/output/images/
 
       - name: 上传固件
         uses: actions/upload-artifact@v4
         with:
           name: armbian-rk3128-armv7-print-server
           path: output/images/*.img.xz
+
+      - name: 清理容器
+        run: sudo docker stop armbian-build && sudo docker rm armbian-build
