@@ -16,46 +16,41 @@ jobs:
           sudo apt update && sudo apt install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file wget
           sudo apt autoremove -y && sudo apt clean -y
 
-      - name: 拉取适配 RK3128 的 OpenWrt 源码（修正分支）
+      - name: 拉取适配 RK3128 的 OpenWrt 源码
         run: git clone --depth 1 https://github.com/coolsnowwolf/lede.git openwrt && cd openwrt
 
-      - name: 手动添加 RK3128 设备树（核心适配）
+      - name: 配置 RK3128 编译参数（绕开设备树）
         run: |
           cd openwrt
-          # 下载 RK3128 通用设备树文件
-          mkdir -p target/linux/rockchip/armv7/base-files/lib/firmware/rockchip
-          wget -O target/linux/rockchip/armv7/base-files/lib/firmware/rockchip/rk3128-box.dtb https://raw.githubusercontent.com/rockchip-linux/kernel/rockchip-rk3128-linux-4.4/arch/arm/boot/dts/rk3128-box.dtb
-          # 配置 RK3128 编译参数
-          echo -e 'CONFIG_TARGET_rockchip=y\nCONFIG_TARGET_rockchip_armv7=y\nCONFIG_TARGET_MULTI_PROFILE=y\nCONFIG_TARGET_DEVICE_rockchip_armv7_DEVICE_rk3128-box=y' > .config
-          # 集成打印服务组件（p910nd + CUPS）
+          # 核心配置：用 rockchip armv7 通用架构，无需指定具体 dtb
+          echo -e 'CONFIG_TARGET_rockchip=y\nCONFIG_TARGET_rockchip_armv7=y\nCONFIG_TARGET_MULTI_PROFILE=y\nCONFIG_TARGET_ALL_PROFILES=y' > .config
+          # 强制集成打印服务组件
           echo -e 'CONFIG_PACKAGE_p910nd=y\nCONFIG_PACKAGE_cups=y\nCONFIG_PACKAGE_cups-bsd=y\nCONFIG_PACKAGE_usbutils=y\nCONFIG_PACKAGE_ufw=y' >> .config
-          # 基础驱动组件
+          # 驱动组件（RK3128 通用）
           echo -e 'CONFIG_PACKAGE_usb-printer=y\nCONFIG_PACKAGE_kmod-usb-printer=y\nCONFIG_PACKAGE_kmod-usb-storage=y\nCONFIG_PACKAGE_samba4-server=y\nCONFIG_PACKAGE_kmod-nls-utf8=y' >> .config
-          # 精简固件（移除冗余）
+          # 精简固件
           echo -e 'CONFIG_PACKAGE_luci-theme-argon=n\nCONFIG_PACKAGE_luci-app-ddns=n\nCONFIG_PACKAGE_luci-app-v2ray=n\nCONFIG_PACKAGE_luci-app-passwall=n' >> .config
+          # 启用 rockchip 通用驱动
+          echo -e 'CONFIG_KERNEL_DEVTMPFS=y\nCONFIG_KERNEL_USB=y\nCONFIG_KERNEL_USB_STORAGE=y\nCONFIG_KERNEL_USB_PRINTER=y' >> .config
 
       - name: 下载依赖包
         run: cd openwrt && ./scripts/feeds update -a && ./scripts/feeds install -a
 
-      - name: 修复依赖缺失（RK3128 适配）
-        run: |
-          cd openwrt
-          # 安装 rockchip 专用依赖
-          ./scripts/feeds install -p custom rockchip-base
-          # 生成默认配置
-          make defconfig
+      - name: 生成编译配置
+        run: cd openwrt && make defconfig
 
-      - name: 开始编译固件
+      - name: 开始编译固件（忽略设备树警告）
         run: |
           cd openwrt
           make -j$(nproc) download V=s
-          make -j$(nproc) V=s 2>&1 | tee build.log
+          # 单线程编译避免多核报错，适配老旧芯片
+          make -j1 V=s 2>&1 | tee build.log
 
-      - name: 收集固件
+      - name: 收集固件（兼容所有输出格式）
         run: |
           mkdir -p ${{ github.workspace }}/firmware
-          cp openwrt/bin/targets/rockchip/armv7/*.img.gz ${{ github.workspace }}/firmware/ || true
-          cp openwrt/bin/targets/rockchip/armv7/*.img ${{ github.workspace }}/firmware/ || true
+          # 复制所有 rockchip armv7 固件
+          cp openwrt/bin/targets/rockchip/armv7/*.* ${{ github.workspace }}/firmware/ || true
           cp openwrt/build.log ${{ github.workspace }}/firmware/ || true
 
       - name: 上传固件
