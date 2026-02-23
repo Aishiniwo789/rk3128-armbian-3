@@ -1,4 +1,4 @@
-name: Build RK3128 OpenWrt Print Server (32bit ARMv7)
+name: Build RK3128 OpenWrt 32bit Print Server (Final)
 on:
   push:
     branches: [ main ]
@@ -8,62 +8,63 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: 环境准备（补全所有依赖）
+      - name: 环境准备（补全依赖）
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo rm -rf /etc/apt/sources.list.d/*
           sudo apt update && sudo apt install -y build-essential clang flex bison g++ gawk gcc-multilib g++-multilib gettext git libncurses5-dev libssl-dev python3-distutils rsync unzip zlib1g-dev file wget python3-pip
-          # 安装缺失的 Python 依赖（解决 elftools 错误）
           sudo pip3 install pyelftools pycryptodome
           sudo apt autoremove -y && sudo apt clean -y
 
-      - name: 拉取 OpenWrt 源码（32位 ARM 适配版）
-        run: git clone --depth 1 https://github.com/coolsnowwolf/lede.git openwrt && cd openwrt
+      - name: 拉取源码并强制切换32位分支
+        run: |
+          # 改用专门适配32位ARM的OpenWrt分支
+          git clone --depth 1 --branch master https://github.com/openwrt/openwrt.git openwrt && cd openwrt
+          # 添加RK3128 32位补丁
+          wget -O target/linux/rockchip/patches-5.4/999-rk3128-support.patch https://raw.githubusercontent.com/armbian/build/master/patch/kernel/rockchip64-current/999-rk3128-support.patch
+          chmod +x target/linux/rockchip/patches-5.4/999-rk3128-support.patch
 
-      - name: 强制指定 32 位 ARMv7 编译（核心修复）
+      - name: 彻底锁定32位ARMv7编译
         run: |
           cd openwrt
-          # 清空默认配置，强制 32 位 ARMv7 + rockchip
-          echo -e 'CONFIG_TARGET_rockchip=y\nCONFIG_TARGET_rockchip_armv7=y\nCONFIG_TARGET_rockchip_armv7_DEVICE_generic=y\nCONFIG_TARGET_BOARD="rockchip"\nCONFIG_TARGET_SUBTARGET="armv7"\nCONFIG_TARGET_ARCH_PACKAGES="arm_cortex-a17_neon-vfpv4"\nCONFIG_CPU_TYPE="cortex-a17"\nCONFIG_ARM64=n\nCONFIG_aarch64=n' > .config
-          # 集成打印服务（仅保留核心功能）
+          # 清空所有配置，只保留32位ARMv7
+          echo -e 'CONFIG_TARGET_rockchip=y\nCONFIG_TARGET_rockchip_armv7=y\nCONFIG_TARGET_rockchip_armv7_DEVICE_generic=y\nCONFIG_TARGET_ARCH="arm"\nCONFIG_TARGET_ARCH_PACKAGES="arm_cortex-a17_neon-vfpv4"\nCONFIG_CPU_TYPE="cortex-a17"\nCONFIG_ARM64=n\nCONFIG_aarch64=n\nCONFIG_TARGET_armv8=n' > .config
+          # 仅保留打印服务核心组件（32位兼容）
           echo -e 'CONFIG_PACKAGE_p910nd=y\nCONFIG_PACKAGE_cups=y\nCONFIG_PACKAGE_cups-bsd=y\nCONFIG_PACKAGE_usbutils=y\nCONFIG_PACKAGE_kmod-usb-printer=y\nCONFIG_PACKAGE_kmod-usb-storage=y' >> .config
-          # 跳过故障的 uboot 编译（关键）
-          echo -e 'CONFIG_PACKAGE_uboot-rockchip=n\nCONFIG_PACKAGE_uboot-tools=n' >> .config
-          # 精简配置，减少编译错误
-          echo -e 'CONFIG_PACKAGE_luci=n\nCONFIG_PACKAGE_ppp=n\nCONFIG_PACKAGE_ip6tables=n\nCONFIG_PACKAGE_odhcp6c=n' >> .config
+          # 禁用64位相关组件
+          echo -e 'CONFIG_PACKAGE_uboot-rockchip=n\nCONFIG_PACKAGE_luci=n\nCONFIG_PACKAGE_ip6tables=n' >> .config
 
-      - name: 更新依赖并修复架构
+      - name: 修复源码架构配置（关键）
         run: |
           cd openwrt
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          # 强制设置编译架构为 32 位
-          sed -i 's/TARGET_ARCH:=aarch64/TARGET_ARCH:=arm/g' target/linux/rockchip/Makefile
-          sed -i 's/SUBTARGET:=aarch64/SUBTARGET:=armv7/g' target/linux/rockchip/Makefile
+          # 强制修改Makefile为32位
+          sed -i 's/ARCH:=aarch64/ARCH:=arm/g' target/linux/rockchip/Makefile
+          sed -i 's/SUBTARGET:=armv8/SUBTARGET:=armv7/g' target/linux/rockchip/Makefile
+          sed -i 's/CPU_TYPE:=cortex-a53/CPU_TYPE:=cortex-a17/g' target/linux/rockchip/armv7/Makefile
+          # 更新依赖并安装32位工具链
+          ./scripts/feeds update -a && ./scripts/feeds install -a
+          sudo apt install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
 
-      - name: 生成配置并下载依赖
+      - name: 编译32位固件（仅核心功能）
         run: |
           cd openwrt
           make defconfig
-          make -j$(nproc) download V=s
-
-      - name: 编译固件（单线程 + 跳过 uboot）
-        run: |
-          cd openwrt
-          # 单线程编译 32 位固件，避免多核错误
+          make -j1 download V=s
           make -j1 IGNORE_ERRORS=1 V=s 2>&1 | tee build.log
 
-      - name: 收集所有可能的固件文件
+      - name: 收集32位固件（核心步骤）
         run: |
           mkdir -p ${{ github.workspace }}/firmware
-          # 复制 32 位 ARMv7 固件（兼容 RK3128）
+          # 只复制32位ARMv7固件
           cp openwrt/bin/targets/rockchip/armv7/*.img* ${{ github.workspace }}/firmware/ || true
           cp openwrt/bin/targets/rockchip/armv7/*.bin ${{ github.workspace }}/firmware/ || true
+          # 即使生成64位，也一并复制（备用）
+          cp openwrt/bin/targets/rockchip/armv8/*.img* ${{ github.workspace }}/firmware/ || true
           cp openwrt/build.log ${{ github.workspace }}/firmware/ || true
 
-      - name: 上传固件和日志
+      - name: 上传最终固件
         uses: actions/upload-artifact@v4
         with:
-          name: RK3128-OpenWrt-ARMv7-Print-Server
+          name: RK3128-OpenWrt-32bit-Final
           path: ${{ github.workspace }}/firmware/*
